@@ -2,7 +2,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 from osc_vad.utils import ORTInference
-from typing import Dict, Tuple, List, Literal
+from typing import Dict, Tuple, List
 import onnxruntime
 
 
@@ -13,7 +13,6 @@ DEFAULT_F16_MODEL = Path(__file__).parent / "assets" / "fsmn" / "fp16.onnx"
 class FSMN:
     def __init__(
         self,
-        precision: Literal["fp32", "fp16"] = "fp32",
         one_minus_speech_thresh: float = 1.0,
         background_noise_db_init: float = 40.0,
         snr_thresh: float = 10.0,
@@ -35,14 +34,8 @@ class FSMN:
             silence_score (float, optional): A judgment factor used to determine whether the state is silent or not. A larger value makes it easier to cut off speaking. Defaults to 0.5.
             session_options (onnxruntime.SessionOptions, optional): ONNX Runtime session options. Defaults to None.
         """
-        if precision == "fp32":
-            onnx_model_path = DEFAULT_F32_MODEL
-        elif precision == "fp16":
-            onnx_model_path = DEFAULT_F16_MODEL
-        else:
-            raise ValueError(f"Invalid precision: {precision}")
         self.infer = ORTInference(
-            onnx_model_path=onnx_model_path, session_options=session_options
+            onnx_model_path=DEFAULT_F16_MODEL, session_options=session_options
         )
 
         self.noise_average_dB = np.array(
