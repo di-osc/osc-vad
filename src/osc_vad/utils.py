@@ -30,7 +30,7 @@ class ORTInference:
         try:
             return self.session.run(self.get_output_names(), input_dict)
         except Exception as e:
-            raise ONNXRuntimeError("ONNXRuntime inferece failed.") from e
+            raise ONNXRuntimeError(f"ONNXRuntime inference failed: {e}")
 
     def get_input_names(
         self,

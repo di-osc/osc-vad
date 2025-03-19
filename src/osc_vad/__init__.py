@@ -1,2 +1,4 @@
-def hello() -> str:
-    return "Hello from osc-vad!"
+from .fsmn import FSMN
+
+
+__all__ = ["FSMN"]

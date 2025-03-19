@@ -3,8 +3,8 @@
 
 
 ## 特点
-- [x] onnxruntime端到端推理,fbank计算集成到模型中。
 - [x] 内置模型，无需下载。
+- [x] 自动选择cpu或者gpu。
 
 
 ## 模型
@@ -16,3 +16,9 @@
 ```shell
 pip install osc-vad
 ```
+
+## 性能
+
+| 模型 | 采样率 | RTF | Speedup Rate | device |
+| --- | --- | --- | --- | --- |
+| FSMN | 16K | 0.0038 | 263.64 | macbook pro m4 |

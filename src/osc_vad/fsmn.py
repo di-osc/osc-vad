@@ -1,59 +1,36 @@
 from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
-from osc_vad.utils import ORTInference
 from typing import Dict, Tuple, List
-import onnxruntime
+from funasr_onnx import Fsmn_vad_online
+import time
 
 
-DEFAULT_F32_MODEL = Path(__file__).parent / "assets" / "fsmn" / "fp32.onnx"
-DEFAULT_F16_MODEL = Path(__file__).parent / "assets" / "fsmn" / "fp16.onnx"
+DEFAULT_MODEL_DIR = Path(__file__).parent / "assets" / "fsmn"
 
 
 class FSMN:
     def __init__(
         self,
-        one_minus_speech_thresh: float = 1.0,
-        background_noise_db_init: float = 40.0,
-        snr_thresh: float = 10.0,
-        fusion_thresh: float = 0.5,
-        min_speech_duration: float = 0.2,
-        speaking_score: float = 0.5,
-        silence_score: float = 0.5,
-        session_options: onnxruntime.SessionOptions = None,
+        device_id: int = -1,
+        intra_op_num_threads: int = 0,
+        max_end_sil: int | None = None,
+        model_dir: Path | str = DEFAULT_MODEL_DIR,
     ):
         """FSMN model for voice activity detection.
-
-        Args:
-            one_minus_speech_thresh (float, optional): The judge factor for VAD model. Defaults to 1.0.
-            background_noise_db_init (float, optional): An initial value for the background. More smaller values indicate a quieter environment. Unit: dB. When using denoised audio, set this value to be smaller.
-            snr_thresh (float, optional): The judge factor for VAD model. Unit: dB. Defaults to 0.0.
-            fusion_thresh (float, optional): The judge factor for VAD model. Defaults to 0.5.
-            min_speech_duration (float, optional): A judgment factor used to filter the vad results. Unit: seconds. Defaults to 0.2.
-            speaking_score (float, optional): A judgment factor used to determine whether the state is speaking or not. A larger value makes activation more difficult. Defaults to 0.5.
-            silence_score (float, optional): A judgment factor used to determine whether the state is silent or not. A larger value makes it easier to cut off speaking. Defaults to 0.5.
-            session_options (onnxruntime.SessionOptions, optional): ONNX Runtime session options. Defaults to None.
         """
-        self.infer = ORTInference(
-            onnx_model_path=DEFAULT_F16_MODEL, session_options=session_options
+        self.infer = Fsmn_vad_online(
+            model_dir=model_dir,
+            device_id=device_id,
+            intra_op_num_threads=intra_op_num_threads,
+            max_end_sil=max_end_sil,
         )
-
-        self.noise_average_dB = np.array(
-            [background_noise_db_init + snr_thresh], dtype=self.infer.model_dtype
-        )
-        self.one_minus_speech_thresh = np.array(
-            [one_minus_speech_thresh], dtype=self.infer.model_dtype
-        )
-        self.background_noise_db_init = background_noise_db_init
-        self.snr_thresh = snr_thresh
-        self.speaking_score = speaking_score
-        self.silence_score = silence_score
 
         self.caches: Dict[
             str, Tuple[NDArray, NDArray, NDArray, NDArray, NDArray, List[bool]]
         ] = {}
 
-    def process_chunk(self, chunk: np.ndarray, cache_id: str) -> bool:
+    def process_chunk(self, chunk: np.ndarray, cache_id: str, is_final: bool = False) -> bool:
         """Process a chunk of audio data.
         Args:
             chunk (np.ndarray): The chunk of audio data to process.
@@ -62,61 +39,45 @@ class FSMN:
             bool: True if the chunk is active, False otherwise.
         """
         assert len(chunk.shape) == 1, "Chunk must be 1D array."
-        chunk = chunk[None, None, :]
         if cache_id not in self.caches:
-            _ = self.create_cache(cache_id)
-        cache_0, cache_1, cache_2, cache_3, noise_average_dB, silence_ls = (
-            self.caches.get(cache_id)
-        )
-        score, cache_0, cache_1, cache_2, cache_3, noisy_dB = self.infer.run(
-            [
-                chunk,
-                cache_0,
-                cache_1,
-                cache_2,
-                cache_3,
-                self.noise_average_dB,
-                self.one_minus_speech_thresh,
-            ]
-        )
-        if silence_ls[-1]:
-            if score >= self.speaking_score:
-                silence_ls.append(False)
-        else:
-            if score <= self.silence_score:
-                silence_ls.append(True)
-        noise_average_dB = 0.5 * (noise_average_dB + noisy_dB) + self.snr_thresh
-        self.caches[cache_id] = (
-            cache_0,
-            cache_1,
-            cache_2,
-            cache_3,
-            noise_average_dB,
-            silence_ls,
-        )
-        is_active = not silence_ls[-1]
-        return is_active
+            self.caches[cache_id] = []
+        in_cache = self.caches.get(cache_id)
+        param_dict = {"in_cache": in_cache, "is_final": is_final}
+        chunk_segments = self.infer(audio_in=chunk, param_dict=param_dict)
+        if len(chunk_segments) > 0:
+            chunk_segments = chunk_segments[0]
+        self.caches[cache_id] = param_dict["in_cache"]
+        return chunk_segments
 
-    def create_cache(self, cache_id: str):
-        """Create a cache for the given cache_id.
+    def test(self, wav_path: str | Path):
+        """Test the FSMN model.
         Args:
-            cache_id (str): The cache_id to create a cache for.
+            wav_path (str | Path): The path to the wav file to test.
         """
-        dtype = self.infer.model_dtype
-        cache0 = np.zeros((1, 128, 19, 1), dtype=dtype)
-        cache1 = np.zeros((1, 128, 19, 1), dtype=dtype)
-        cache2 = np.zeros((1, 128, 19, 1), dtype=dtype)
-        cache3 = np.zeros((1, 128, 19, 1), dtype=dtype)
-        noise_average_dB = np.array(
-            [self.background_noise_db_init + self.snr_thresh], dtype=dtype
-        )
-        silence_ls = [True]
-        self.caches[cache_id] = (
-            cache0,
-            cache1,
-            cache2,
-            cache3,
-            noise_average_dB,
-            silence_ls,
-        )
-        return self.caches[cache_id]
+        import soundfile
+        speech, sample_rate = soundfile.read(wav_path)
+        assert sample_rate == 16000, f"Sample rate must be 16000. Got {sample_rate}."
+        speech_length = speech.shape[0]
+        duration = speech_length / sample_rate
+        sample_offset = 0
+        step = 1600
+        all_segments = []
+        start = time.perf_counter()
+        for sample_offset in range(0, speech_length, min(step, speech_length - sample_offset)):
+            if sample_offset + step >= speech_length - 1:
+                step = speech_length - sample_offset
+                is_final = True
+            else:
+                is_final = False
+            segments = self.process_chunk(
+                chunk=speech[sample_offset: sample_offset + step],
+                cache_id="test",
+                is_final=is_final,
+            )
+            if segments:
+                all_segments.extend(segments)
+        spent = round(time.perf_counter() - start, 4)
+        rtf = round(spent / duration, 4)
+        speed = round(duration / spent, 4)
+        print(f"Duration: {duration}s, Spent: {spent}s, RTF: {rtf}, Speed: {speed}x")
+        return all_segments
