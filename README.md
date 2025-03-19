@@ -17,6 +17,16 @@
 pip install osc-vad
 ```
 
+## 使用
+```python
+from osc_vad import FSMN
+vad = FSMN()
+for chunk in chunks:
+    segments = vad.process_chunk(chunk)
+    for segment in segments:
+        print(segment)
+```
+
 ## 性能
 
 | 模型 | 采样率 | RTF | Speedup Rate | device |
