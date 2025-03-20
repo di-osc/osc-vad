@@ -45,7 +45,10 @@ class FSMN:
         chunk_segments = self.infer(audio_in=chunk, param_dict=param_dict)
         if len(chunk_segments) > 0:
             chunk_segments = chunk_segments[0]
-        self.caches[cache_id] = param_dict["in_cache"]
+        if not is_final:
+            self.caches[cache_id] = param_dict["in_cache"]
+        else:
+            self.caches.pop(cache_id)
         return chunk_segments
 
     def test(self, wav_path: str | Path):
