@@ -1,7 +1,7 @@
 from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
-from typing import Dict, Tuple, List
+from typing import Dict, List
 from funasr_onnx import Fsmn_vad_online
 import time
 
@@ -17,8 +17,7 @@ class FSMN:
         max_end_sil: int | None = None,
         model_dir: Path | str = DEFAULT_MODEL_DIR,
     ):
-        """FSMN model for voice activity detection.
-        """
+        """FSMN model for voice activity detection."""
         self.infer = Fsmn_vad_online(
             model_dir=model_dir,
             device_id=device_id,
@@ -26,11 +25,11 @@ class FSMN:
             max_end_sil=max_end_sil,
         )
 
-        self.caches: Dict[
-            str, Tuple[NDArray, NDArray, NDArray, NDArray, NDArray, List[bool]]
-        ] = {}
+        self.caches: Dict[str, List[NDArray]] = {}
 
-    def process_chunk(self, chunk: np.ndarray, cache_id: str, is_final: bool = False) -> bool:
+    def process_chunk(
+        self, chunk: np.ndarray, cache_id: str, is_final: bool = False
+    ) -> bool:
         """Process a chunk of audio data.
         Args:
             chunk (np.ndarray): The chunk of audio data to process.
@@ -55,6 +54,7 @@ class FSMN:
             wav_path (str | Path): The path to the wav file to test.
         """
         import soundfile
+
         speech, sample_rate = soundfile.read(wav_path)
         assert sample_rate == 16000, f"Sample rate must be 16000. Got {sample_rate}."
         speech_length = speech.shape[0]
@@ -63,14 +63,16 @@ class FSMN:
         step = 1600
         all_segments = []
         start = time.perf_counter()
-        for sample_offset in range(0, speech_length, min(step, speech_length - sample_offset)):
+        for sample_offset in range(
+            0, speech_length, min(step, speech_length - sample_offset)
+        ):
             if sample_offset + step >= speech_length - 1:
                 step = speech_length - sample_offset
                 is_final = True
             else:
                 is_final = False
             segments = self.process_chunk(
-                chunk=speech[sample_offset: sample_offset + step],
+                chunk=speech[sample_offset : sample_offset + step],
                 cache_id="test",
                 is_final=is_final,
             )
